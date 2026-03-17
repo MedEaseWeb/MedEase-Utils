@@ -108,7 +108,12 @@ async def run(config: dict, rediscover: bool) -> None:
     # --- Site Discovery (cached) ---
     if not SITEMAP_PATH.exists() or rediscover:
         log.info("Running site discovery...")
-        sitemap = discover(config["base_url"], SITEMAP_PATH)
+        sitemap = await discover(
+            config["base_url"],
+            config["domain"],
+            SITEMAP_PATH,
+            config["politeness_delay_seconds"],
+        )
     else:
         log.info(f"Using cached sitemap: {SITEMAP_PATH}")
         sitemap = load_sitemap(SITEMAP_PATH)
@@ -118,15 +123,24 @@ async def run(config: dict, rediscover: bool) -> None:
     existing = load_existing_corpus(source_id)
     log.info(f"Existing corpus: {len(existing)} records")
 
-    # Seed new corpus with all existing records; updates will overwrite in-place
-    records: dict[str, dict] = dict(existing)
-    pdf_urls: set[str] = set()
+    # Only keep records whose URLs are still in the current sitemap (prune orphans from old runs)
+    sitemap_urls = {entry["url"] for entry in sitemap}
+    pruned = [url for url in existing if url not in sitemap_urls]
+    if pruned:
+        log.info(f"Pruning {len(pruned)} orphaned records no longer in sitemap")
+    records: dict[str, dict] = {url: rec for url, rec in existing.items() if url in sitemap_urls}
+
+    # Split sitemap into HTML and PDF entries
+    html_entries = [e for e in sitemap if e["type"] == "html"]
+    pdf_entries  = [e for e in sitemap if e["type"] == "pdf"]
+
+    pdf_urls: set[str] = {e["url"] for e in pdf_entries}
     stats = {"new": 0, "updated": 0, "unchanged": 0, "failed_html": 0, "failed_pdf": 0}
 
     # --- Phase A: HTML pages ---
     browser_conf = BrowserConfig(headless=True)
     async with AsyncWebCrawler(config=browser_conf) as crawler:
-        for entry in sitemap:
+        for entry in html_entries:
             url = entry["url"]
 
             if not needs_update(entry, existing):
@@ -147,6 +161,7 @@ async def run(config: dict, rediscover: bool) -> None:
             if page:
                 records[url] = dataclasses.asdict(page)
                 stats["new" if is_new else "updated"] += 1
+                # Add any PDF links found on this page to the PDF queue
                 pdf_urls.update(discovered_pdfs)
             else:
                 stats["failed_html"] += 1
@@ -154,9 +169,9 @@ async def run(config: dict, rediscover: bool) -> None:
 
             await asyncio.sleep(config["politeness_delay_seconds"])
 
-    # --- Phase B: PDFs ---
+    # --- Phase B: PDFs (from sitemap + discovered via HTML links) ---
     new_pdf_urls = [u for u in pdf_urls if u not in records]
-    log.info(f"PDFs: {len(pdf_urls)} discovered, {len(new_pdf_urls)} new")
+    log.info(f"PDFs: {len(pdf_urls)} total, {len(new_pdf_urls)} new")
 
     for pdf_url in new_pdf_urls:
         log.info(f"PDF    {pdf_url}")
