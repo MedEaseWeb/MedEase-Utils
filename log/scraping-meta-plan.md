@@ -193,6 +193,54 @@ class Page:
 
 ---
 
+## V3 — Gap Closure
+
+**Status: Planned**
+**Scope:** Fix known V2 gaps and validate corpus quality end-to-end. No new sites, no scope expansion.
+**Goal:** Bring maturity from 7/10 → 9/10 before handing the corpus to the RAG ingestion pipeline.
+
+---
+
+### V3 Goals
+
+#### 3.1 — Atomic Write
+- Current: corpus JSON written directly to `output/` — a crash mid-write corrupts the file
+- Fix: write to a temp file (`emory_das_data_latest.tmp.json`), then `os.replace()` on success
+- Applies to both the dated file and `_latest.json`
+
+#### 3.2 — Per-Record Validation
+- Current: records with empty markdown can silently enter the corpus
+- Fix: before appending any record to `records`, check `word_count > 0` and `markdown.strip() != ""`
+- Rejected records should be logged to `runs/failed_urls.log` with reason `"empty content after scrape"`
+- This catches pages that render a 200 but return no meaningful content (e.g. JS-only pages, redirect pages)
+
+#### 3.3 — PDF Metadata Extraction
+- Current: PDF `title` is derived from filename slug (e.g. `"Das Flexibility Attendance Form"`); `description` is always `""`
+- Fix: use `pdfplumber`'s `pdf.metadata` to extract the document's embedded `Title` and `Subject` fields where available
+- Fallback chain: PDF metadata title → filename slug (current behavior)
+- `description`: try PDF metadata `Subject` field → `""`
+
+#### 3.4 — Corpus Quality Gate in `read.py`
+- Current: `read.py` shows summary table but does not flag quality issues
+- Add `--validate` flag that checks every record and reports:
+  - Records with `word_count == 0`
+  - Records with empty `title` or `title` that is still a URL slug (heuristic: all lowercase, contains `-`)
+  - Records with empty `description` (informational, not a failure)
+  - Duplicate `content_hash` values (identical content at different URLs)
+- Exit with non-zero code if any hard failures found — usable as a pre-handoff quality gate
+
+---
+
+### V3 Success Criteria
+
+- [ ] Re-running the scraper on an interrupted write leaves corpus intact (atomic write)
+- [ ] Zero records with `word_count == 0` in the output corpus
+- [ ] PDFs with embedded metadata show real titles (verified against actual PDF files)
+- [ ] `python read.py --validate` exits 0 on the current clean corpus
+- [ ] `python read.py --validate` exits non-zero when a synthetic bad record is injected (test)
+
+---
+
 ## Phase 2 Preview (Out of Scope for Now)
 
 Once V2 is stable and the DAS corpus is validated end-to-end in the RAG pipeline, Phase 2 will extend the scraper to additional sources:
