@@ -43,7 +43,8 @@ async def scrape_html(
                     slug = url.rstrip("/").split("/")[-1]
                     title = slug.replace("-", " ").replace(".html", "").title() or url
 
-                markdown = result.markdown or ""
+                # result.markdown is a MarkdownGenerationResult object in crawl4ai 0.8+
+                markdown = (result.markdown.raw_markdown if result.markdown else "") or ""
                 content_hash = hashlib.md5(markdown.encode()).hexdigest()
 
                 page = Page(
