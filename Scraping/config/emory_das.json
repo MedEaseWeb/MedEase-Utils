@@ -1,0 +1,10 @@
+{
+  "source_id": "emory_das",
+  "base_url": "https://accessibility.emory.edu/",
+  "domain": "accessibility.emory.edu",
+  "css_selector": "main",
+  "politeness_delay_seconds": 2.0,
+  "max_retries": 3,
+  "include_pdfs": true,
+  "word_count_threshold": 10
+}

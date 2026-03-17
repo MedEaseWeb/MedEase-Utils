@@ -207,3 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 .DS_Store
+
+# Scraping generated output (keep .gitkeep, ignore data files)
+Scraping/output/*.json
+Scraping/runs/*.jsonl
+Scraping/runs/*.log
