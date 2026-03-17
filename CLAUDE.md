@@ -6,16 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MedEase-Utils harvests structured content from educational websites to build a natural language corpus for the MedEase RAG pipeline. Phase 1 targets `accessibility.emory.edu` (Emory Disability Access Services). Downstream consumer is ChromaDB — but embedding and indexing are out of scope here; this project delivers raw corpus only.
 
+## System Dependencies
+
+Before `pip install`, install these system binaries:
+
+```bash
+# macOS
+brew install poppler tesseract
+
+# Ubuntu/Debian
+apt-get install poppler-utils tesseract-ocr
+```
+
 ## Running the Scraper
 
 ```bash
 pip install -r requirements.txt
 
 cd Scraping/
-python main.py                            # Run full pipeline (site discovery → scrape → output)
-python main.py --config config/emory_das.json   # Explicit config (same as default)
-python read.py                            # Inspect latest corpus
-python read.py --file output/emory_data_2026-03-16.json  # Inspect specific run
+python main.py                                          # Full pipeline (uses cached sitemap if present)
+python main.py --rediscover                             # Force re-fetch sitemap.xml before scraping
+python main.py --config config/emory_das.json          # Explicit config (same as default)
+python read.py                                          # Inspect latest corpus
+python read.py --file output/emory_das_data_2026-03-16.json
+python read.py --export csv
 ```
 
 ## Architecture
