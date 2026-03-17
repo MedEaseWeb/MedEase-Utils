@@ -44,6 +44,7 @@ def extract_pdf(url: str, max_retries: int = 3) -> Page | None:
     return Page(
         url=url,
         title=title,
+        description="",
         content_type="pdf",
         markdown=text,
         last_scraped=date.today().isoformat(),

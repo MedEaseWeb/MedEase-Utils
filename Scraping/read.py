@@ -44,7 +44,7 @@ def main():
         return
 
     df = pd.DataFrame(records)
-    display_cols = [c for c in ["url", "title", "content_type", "word_count", "last_scraped"] if c in df.columns]
+    display_cols = [c for c in ["url", "title", "description", "content_type", "word_count", "last_scraped"] if c in df.columns]
     summary = df[display_cols]
 
     dupes = df[df.duplicated("url", keep=False)]

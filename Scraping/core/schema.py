@@ -6,6 +6,7 @@ from typing import Literal
 class Page:
     url: str
     title: str
+    description: str               # from <meta name="description"> or PDF metadata; "" if unavailable
     content_type: Literal["html", "pdf"]
     markdown: str                  # plain text for PDFs, markdown for HTML
     last_scraped: str              # ISO date  (YYYY-MM-DD)

@@ -6,9 +6,44 @@ import asyncio
 import hashlib
 from datetime import date, datetime
 
+from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
 
 from core.schema import Page
+
+
+def _extract_metadata(html: str) -> tuple[str, str]:
+    """
+    Parse raw HTML to extract title and description.
+
+    Title fallback chain:
+      1. <title> tag (full document title, most reliable)
+      2. First <h1> in the page
+      3. Empty string (caller will fall back to URL slug)
+
+    Description: <meta name="description"> content, or "".
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Title
+    title = ""
+    title_tag = soup.find("title")
+    if title_tag and title_tag.string:
+        # Emory titles are like "Page Name | Emory University | Atlanta GA"
+        # Keep only the first segment
+        title = title_tag.string.split("|")[0].strip()
+    if not title:
+        h1 = soup.find("h1")
+        if h1:
+            title = h1.get_text(strip=True)
+
+    # Description
+    description = ""
+    meta_desc = soup.find("meta", attrs={"name": "description"})
+    if meta_desc and meta_desc.get("content"):
+        description = meta_desc["content"].strip()
+
+    return title, description
 
 
 async def scrape_html(
@@ -35,10 +70,8 @@ async def scrape_html(
             result = await crawler.arun(url=url, config=run_conf)
 
             if result.success:
-                # Title: prefer metadata, fall back to URL slug
-                title = ""
-                if result.metadata:
-                    title = result.metadata.get("title") or ""
+                # Extract title and description from raw HTML (most reliable source)
+                title, description = _extract_metadata(result.html or "")
                 if not title:
                     slug = url.rstrip("/").split("/")[-1]
                     title = slug.replace("-", " ").replace(".html", "").title() or url
@@ -49,7 +82,8 @@ async def scrape_html(
 
                 page = Page(
                     url=url,
-                    title=title.strip(),
+                    title=title,
+                    description=description,
                     content_type="html",
                     markdown=markdown,
                     last_scraped=date.today().isoformat(),

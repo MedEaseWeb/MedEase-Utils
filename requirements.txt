@@ -5,6 +5,7 @@ pytesseract
 pdf2image
 requests
 pydantic
+beautifulsoup4
 
 # pdf2image requires poppler as a system dependency:
 #   macOS:  brew install poppler
