@@ -1,4 +1,14 @@
 crawl4ai
 pandas
 pdfplumber
+pytesseract
+pdf2image
+requests
 pydantic
+
+# pdf2image requires poppler as a system dependency:
+#   macOS:  brew install poppler
+#   Ubuntu: apt-get install poppler-utils
+# pytesseract requires tesseract:
+#   macOS:  brew install tesseract
+#   Ubuntu: apt-get install tesseract-ocr
