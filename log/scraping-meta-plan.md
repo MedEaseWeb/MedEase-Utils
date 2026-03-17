@@ -2,6 +2,10 @@
 **Created:** 2026-03-16
 **Scope:** `Scraping/` — Emory DAS corpus builder for the MedEase RAG pipeline
 
+> **Checkpoint — 2026-03-17**
+> V2 complete and merged (PR #2). 51 records delivered (42 HTML + 9 PDF).
+> V3 gap-closure section added below.
+
 ---
 
 ## Context & Goal
@@ -25,7 +29,7 @@ MedEase is a RAG-powered assistant. Its retrieval quality depends entirely on th
 
 ---
 
-## V1 — Proof of Concept
+## ~~V1 — Proof of Concept~~ ✓ Done
 
 **Status: Done**
 **Delivered:** `Scraping/test.py` + `Scraping/emory_data.json` (30 pages, ~118KB)
@@ -34,11 +38,11 @@ MedEase is a RAG-powered assistant. Its retrieval quality depends entirely on th
 
 | Goal | Status |
 |---|---|
-| Async BFS crawl with domain filtering | Done |
-| Main content extraction via `css_selector="main"` | Done |
-| Politeness delay (2s) | Done |
-| URL deduplication | Done |
-| JSON output | Done |
+| ~~Async BFS crawl with domain filtering~~ | ~~Done~~ ✓ |
+| ~~Main content extraction via `css_selector="main"`~~ | ~~Done~~ ✓ |
+| ~~Politeness delay (2s)~~ | ~~Done~~ ✓ |
+| ~~URL deduplication~~ | ~~Done~~ ✓ |
+| ~~JSON output~~ | ~~Done~~ ✓ |
 | Title extraction | Broken — all records show `"No Title"` |
 | Dynamic timestamp | Broken — hardcoded to `"2026-01-18"` |
 | Retry logic | Missing |
@@ -48,9 +52,9 @@ MedEase is a RAG-powered assistant. Its retrieval quality depends entirely on th
 ### V1 Limitations (Blocking for Production Use)
 
 1. **Broken metadata** — title and timestamp fields are unusable; RAG citations will be malformed
-2. **Incomplete corpus** — V1 capped at 50 pages and found 30; actual site scope is unknown. The 30-page figure should not be treated as ground truth.
-3. **PDFs excluded** — linked documents (forms, policy PDFs) are silently skipped, leaving gaps in the corpus
-4. **Full-rewrite on every run** — no incremental update logic; entire file is overwritten each run
+2. **Incomplete corpus** — V1 capped at 50 pages and found 30; actual site scope is unknown
+3. **PDFs excluded** — linked documents (forms, policy PDFs) are silently skipped
+4. **Full-rewrite on every run** — no incremental update logic
 5. **No error recovery** — a single network blip silently drops a page
 6. **Hardcoded, non-reusable** — `BASE_URL`, `DOMAIN`, `css_selector` all baked in
 7. **No requirements file** — not reproducible without tribal knowledge
@@ -59,129 +63,108 @@ MedEase is a RAG-powered assistant. Its retrieval quality depends entirely on th
 
 ---
 
-## V2 — Production-Ready DAS Corpus Builder
+## ~~V2 — Production-Ready DAS Corpus Builder~~ ✓ Done
 
-**Target:** A reliable, reproducible scraper that produces a complete and auditable corpus covering the full scope of `accessibility.emory.edu`.
-**Scope:** Emory DAS only. Multi-site generalization is Phase 2.
-
----
-
-### Pre-Step: Site Discovery (Site Map)
-
-Before any content scraping, V2 must establish the **complete URL inventory** of the domain. V1 never did this — it just crawled until it ran out of queue or hit the 50-page cap. The actual number of pages is unknown.
-
-**Approach (in priority order):**
-
-1. **Check for `sitemap.xml`** — fetch `https://accessibility.emory.edu/sitemap.xml` and `sitemap_index.xml`. If present, parse all `<loc>` entries. This is the fastest and most complete discovery method.
-2. **BFS link crawl (fallback)** — if no sitemap exists, run a lightweight BFS pass with **no page cap** and **no content extraction** (just follow links, collect URLs). This produces a `emory_sitemap.json` of all discovered URLs before any scraping begins.
-
-**Output:** `Scraping/emory_sitemap.json` — a flat list of all discovered URLs with their type (`html` or `pdf`).
-
-```json
-[
-  { "url": "https://accessibility.emory.edu/students/", "type": "html" },
-  { "url": "https://accessibility.emory.edu/forms/accommodation-request.pdf", "type": "pdf" }
-]
-```
-
-This sitemap file serves as the authoritative crawl target list and can be version-controlled to track site growth over time. Every subsequent scraping run starts from this file rather than re-discovering the site from scratch.
+**Status: Done — 2026-03-17**
+**Delivered:** 51 records (42 HTML + 9 PDF), avg 293 words, 0 internal failures
 
 ---
 
-### V2 Goals
+### ~~Pre-Step: Site Discovery~~ ✓ Done
 
-#### 2.1 — PDF Handling
-- V1 explicitly filtered out `.pdf`, `.jpg`, `.png` — PDFs must now be included
-- HTML pages are handled by `crawl4ai` as before
-- PDFs require a separate extraction path: download the file and extract text using `pdfplumber` or `pymupdf`, converting to plain text (stored in the `markdown` field for schema consistency)
-- Record `content_type: "html"` or `content_type: "pdf"` in the schema to allow downstream consumers to handle them differently if needed
+*What was built:* `discovery/sitemap.py` — fetches `sitemap.xml`, validates by evenly-spaced HTTP sampling (>20% 404 → stale), falls back to async BFS. Filters out `/do-not-trash/`, `/search.html`, `/404/`. Outputs `emory_sitemap.json`.
 
-#### 2.2 — Fix Broken Metadata
-- Extract page title from `<title>` tag via `crawl4ai`'s `result.metadata` or a fallback `BeautifulSoup` parse of `result.html`
-- For PDFs, use the document's metadata title if available, otherwise derive from filename
-- Replace hardcoded date with `datetime.date.today().isoformat()`
-- Add `scraped_at` (ISO 8601 datetime) for per-record audit precision
-- Add a top-level `run_metadata` envelope (see schema below)
-
-#### 2.3 — Incremental Crawling (Weekly Refresh)
-- Load existing corpus on startup; build a `{url: content_hash}` index
-- On re-crawl, skip pages whose content hash hasn't changed
-- Append new records (new pages discovered since last run); update changed records; preserve unchanged records
-- Write atomically (write to temp file, then rename) to prevent corrupt JSON on crash
-- Target: weekly runs where most pages are skipped (unchanged), keeping runtime low
-
-#### 2.4 — Retry Logic
-- Wrap `crawler.arun()` in a retry loop: up to 3 attempts with exponential backoff (2s, 4s, 8s)
-- Log permanently failed URLs to `failed_urls.log` after exhausting retries
-- Failed URLs should not block the rest of the crawl
-
-#### 2.5 — Schema Enforcement
-- Define a `Page` dataclass (or Pydantic model):
-  ```python
-  @dataclass
-  class Page:
-      url: str
-      title: str
-      content_type: str       # "html" or "pdf"
-      markdown: str           # plain text for PDFs, markdown for HTML
-      last_scraped: str       # ISO date (YYYY-MM-DD)
-      scraped_at: str         # ISO datetime
-      word_count: int
-      content_hash: str       # MD5 of markdown for change detection
-  ```
-- Validate every record before writing; reject and log records with empty content or word count below threshold
-
-#### 2.6 — Config File
-- Extract all constants (`BASE_URL`, `DOMAIN`, `MAX_PAGES`, `POLITENESS_DELAY`, `css_selector`) into `config.json`
-- The scraper reads config at startup; no hardcoded values in code
-- Bridge toward Phase 2: adding a new site means adding a new config entry, not forking code
-
-#### 2.7 — Output Format
-- Corpus file: `emory_data_YYYY-MM-DD.json` per run, plus `emory_data_latest.json` as a stable pointer
-- Run audit log: `run_log.jsonl` — one line per run with: `run_date`, `pages_crawled`, `pages_new`, `pages_updated`, `pages_unchanged`, `pages_failed`, `duration_seconds`
-- Top-level corpus envelope:
-  ```json
-  {
-    "source": "accessibility.emory.edu",
-    "last_updated": "2026-03-16T14:32:01",
-    "total_pages": 47,
-    "records": [ ... ]
-  }
-  ```
-
-#### 2.8 — Tooling & DX
-- `requirements.txt` with pinned versions: `crawl4ai`, `pandas`, `pdfplumber` (or `pymupdf`)
-- `read.py` upgraded: summary table (url, title, content_type, word_count, last_scraped), duplicate URL detection, export to CSV
-- Structured logging to stdout: `INFO`, `WARNING`, `ERROR`
+*Key deviation:* `accessibility.emory.edu` had restructured its URL paths after the sitemap was generated (~80% of sitemap URLs were 404). Staleness validation was essential and BFS fallback ran in practice on every run.
 
 ---
 
-### V2 Success Criteria
+### ~~V2 Goals~~ ✓ All Done
 
-- [ ] Site discovery step produces a complete `emory_sitemap.json` — total URL count is known before scraping starts
-- [ ] All HTML pages have non-empty, correct titles
-- [ ] All PDF links are downloaded and their text extracted into corpus records
-- [ ] Timestamps are accurate and dynamic
-- [ ] Re-running on an unchanged site produces zero record updates (idempotent)
-- [ ] A single network failure does not drop the page; retries exhaust before logging to `failed_urls.log`
-- [ ] A new developer can install and run with only `pip install -r requirements.txt && python scraper.py`
-- [ ] `read.py` outputs a summary table for all records
+#### ~~2.1 — PDF Handling~~ ✓
+*What was built:* `scrapers/pdf_extractor.py` — pdfplumber text extraction with pytesseract + pdf2image OCR fallback for scanned/image PDFs. PDFs discovered both from sitemap and from `<a href>` links on HTML pages.
+
+#### ~~2.2 — Fix Broken Metadata~~ ✓
+*What was built:* `html_scraper.py` uses BeautifulSoup on `result.html` for reliable title/description extraction. `crawl4ai 0.8` returns `result.markdown` as a `MarkdownGenerationResult` object; `.raw_markdown` required. Added `description` field (from `<meta name="description">`) to `Page` schema for RAG benchmarking.
+
+#### ~~2.3 — Incremental Crawling~~ ✓ (partial)
+*What was built:* Existing corpus loaded on startup; records not in current sitemap are pruned (orphan removal); records with unchanged `content_hash` are preserved. **Deviation:** atomic write (temp + `os.replace()`) was deferred to V3.
+
+#### ~~2.4 — Retry Logic~~ ✓
+*What was built:* Both `html_scraper.py` and `pdf_extractor.py` implement exponential backoff retry (2s → 4s → 8s, up to 3 attempts). Permanent failures logged to `runs/failed_urls.log`.
+
+#### ~~2.5 — Schema Enforcement~~ ✓ (partial)
+*What was built:* `Page` dataclass with typed fields including `description`. **Deviation:** per-record validation gate (reject empty markdown before write) deferred to V3.
+
+#### ~~2.6 — Config File~~ ✓
+*What was built:* `config/emory_das.json` with all site-specific values. Config loaded at startup via `core/config_loader.py`.
+
+#### ~~2.7 — Output Format~~ ✓
+*What was built:* `output/emory_das_data_YYYY-MM-DD.json` + `output/emory_das_data_latest.json`. `runs/run_log.jsonl` per-run audit log. `CorpusEnvelope` wrapper with `source`, `last_updated`, `total_pages`.
+
+#### ~~2.8 — Tooling & DX~~ ✓
+*What was built:* `requirements.txt` with system dep notes. `read.py` with summary table, duplicate detection, CSV export.
+
+---
+
+### V2 Success Criteria — Final Status
+
+- [x] Site discovery produces complete `emory_sitemap.json`
+- [x] All HTML pages have non-empty, correct titles
+- [x] All PDF links downloaded and text extracted
+- [x] Timestamps accurate and dynamic
+- [x] Single network failure does not drop page (retry + log)
+- [x] New developer can install and run with `pip install -r requirements.txt`
+- [x] `read.py` outputs summary table
+- [ ] Re-running on unchanged site produces zero record updates — *not verified; needs test run*
+
+---
+
+## V3 — Gap Closure
+
+**Status: Planned**
+**Goal:** Close the quality and robustness gaps identified during V2 delivery. No new features or site expansion.
+
+### V3 Goals
+
+#### 3.1 — Atomic Write
+- **Problem:** `main.py` writes directly to the output file. A crash mid-write produces corrupt JSON.
+- **Fix:** Write to a temp file (`output/.tmp_corpus.json`), then `os.replace(tmp, final)`. One-line change in `main.py`.
+
+#### 3.2 — Per-Record Validation Gate
+- **Problem:** Records with empty `markdown` (scraper returned content but text extraction yielded nothing) are logged but still written to the corpus.
+- **Fix:** Before appending to the output list, reject records where `word_count < threshold` (use config `word_count_threshold`). Log rejected records to `runs/failed_urls.log` with reason.
+
+#### 3.3 — PDF Metadata Extraction
+- **Problem:** `description` is always `""` for PDFs. `pdfplumber` can read embedded PDF metadata (title, subject, author).
+- **Fix:** In `pdf_extractor.py`, try `pdf.metadata` for title and subject before falling back to filename derivation.
+
+#### 3.4 — `--validate` Flag in `read.py`
+- **Problem:** No CLI quality gate. A downstream consumer has no automated way to verify the corpus meets minimum quality standards.
+- **Fix:** Add `python read.py --validate` that exits non-zero if: any record has empty title, avg word count < 50, or >5% of records have `word_count < 10`. Usable in CI.
+
+### V3 Success Criteria
+
+- [ ] A crash during `main.py` write leaves the previous corpus intact
+- [ ] Records with empty text are absent from the output corpus
+- [ ] PDF records have non-empty `description` where PDF metadata is available
+- [ ] `python read.py --validate` exits 0 on a healthy corpus and non-zero on a degraded one
 
 ---
 
 ## Downstream Handoff (RAG Pipeline Interface)
 
-V2's output (`emory_data_latest.json`) will be consumed by the MedEase RAG ingestion pipeline. The schema is a contract — changes must be coordinated with the ingestion side.
+V2's output (`emory_das_data_latest.json`) will be consumed by the MedEase RAG ingestion pipeline. The schema is a contract — changes must be coordinated with the ingestion side.
 
 ```json
 {
   "source": "accessibility.emory.edu",
   "last_updated": "2026-03-16T14:32:01",
-  "total_pages": 47,
+  "total_pages": 51,
   "records": [
     {
       "url": "https://accessibility.emory.edu/students/register/",
       "title": "Register for Accommodations",
+      "description": "Learn how to register with Emory DAS.",
       "content_type": "html",
       "markdown": "# Register for Accommodations\n...",
       "last_scraped": "2026-03-16",
