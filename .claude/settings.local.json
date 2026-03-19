@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python3 -c \":*)",
+      "Bash(python3 main.py)",
+      "Bash(python3:*)",
+      "Bash(curl -sI \"https://accessibility.emory.edu/students/faqs.html\")",
+      "Bash(curl -sI https://accessibility.emory.edu/students/faqs)",
+      "Bash(curl -sI https://accessibility.emory.edu/students/)",
+      "Bash(curl -s \"https://accessibility.emory.edu/index.html\")",
+      "Bash(gh pr:*)"
+    ]
+  }
+}
